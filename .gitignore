@@ -1,0 +1,27 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / Editor
+.DS_Store
+.vscode/
+
+# Env / Secrets
+.env
+.env.*
+
+# Build / Coverage
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+logs/
+*.pid
+
+# Docker volumes cache (if any local bind mounts)
+.docker/

@@ -1,0 +1,22 @@
+services:
+  postgresql:
+    image: postgres:15
+    container_name: postgres-container
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass@123
+    ports:
+      - "5433:5432" # Using 5433 to avoid conflicts with local postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - interceptor_network
+
+volumes:
+  postgres_data:
+
+networks:
+  interceptor_network:
+    driver: bridge
