@@ -4,6 +4,7 @@ A simple PostgreSQL wire-protocol proxy that prints messages flowing between cli
 
 - Forwards bytes unmodified — no TLS termination.
 - Parses and logs: Startup/SSL negotiation, Query/Parse/Bind/Execute/Sync, RowDescription/DataRow/CommandComplete, errors/notices.
+- Built-in modern admin web portal to view logs live (SSE-based) at http://127.0.0.1:8080 by default.
 
 ## How SSL/TLS affects logging
 
@@ -31,6 +32,7 @@ A simple PostgreSQL wire-protocol proxy that prints messages flowing between cli
 - `PROXY_PORT` (default `5432`) — Port the proxy listens on
 - `PG_HOST` (default `127.0.0.1`) — Upstream Postgres host
 - `PG_PORT` (default `5433`) — Upstream Postgres port
+- `ADMIN_PORT` (default `8080`) — Admin web portal port
 
 ## Usage
 
@@ -41,6 +43,10 @@ A simple PostgreSQL wire-protocol proxy that prints messages flowing between cli
   - SSL Mode: `disable` (or set `sslmode=disable` in Advanced)
 
 Perform queries and watch the proxy output log incoming/outgoing protocol messages.
+
+Open the admin portal to view structured logs:
+
+- http://127.0.0.1:8080 (or the port you set in `ADMIN_PORT`)
 
 ## Development
 

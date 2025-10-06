@@ -1,5 +1,6 @@
 const {
   debugLog,
+  emitLogEvent,
   readCString,
   readInt16,
   readInt32,
@@ -39,7 +40,8 @@ class PGStreamParser {
       if (this.expectStartup) {
         if (this.buffer.length < 4) break;
         const totalLen = this.buffer.readInt32BE(0);
-        if (this.buffer.length < totalLen + 4) break;
+        // totalLen already includes the 4-byte length field
+        if (this.buffer.length < totalLen) break;
         const body = this.buffer.slice(4, 4 + totalLen - 4);
         const code = body.readInt32BE(0);
         const isSSLRequest = code === 80877103;
@@ -52,9 +54,9 @@ class PGStreamParser {
           gssencRequest: isGSSENCRequest,
           totalLen,
           payload: body,
-          raw: this.buffer.slice(0, 4 + (totalLen - 4)),
+          raw: this.buffer.slice(0, totalLen),
         });
-        this.buffer = this.buffer.slice(4 + (totalLen - 4));
+        this.buffer = this.buffer.slice(totalLen);
         if (!isSSLRequest && !isGSSENCRequest) {
           this.expectStartup = false;
         }
@@ -83,6 +85,12 @@ function prettyPrintClientMessage(connId, obj) {
         connId,
         `Client -> Server: SSLRequest (len=${obj.totalLen}). Will forward as-is.`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: "SSLRequest",
+        data: { len: obj.totalLen },
+      });
       return;
     }
     if (obj.gssencRequest) {
@@ -90,6 +98,12 @@ function prettyPrintClientMessage(connId, obj) {
         connId,
         `Client -> Server: GSSENCRequest (len=${obj.totalLen}). Will forward as-is.`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: "GSSENCRequest",
+        data: { len: obj.totalLen },
+      });
       return;
     }
     if (obj.cancelRequest) {
@@ -97,6 +111,12 @@ function prettyPrintClientMessage(connId, obj) {
         connId,
         `Client -> Server: CancelRequest (len=${obj.totalLen}). Will forward as-is.`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: "CancelRequest",
+        data: { len: obj.totalLen },
+      });
       return;
     }
     const proto = obj.payload.readInt32BE(0);
@@ -116,6 +136,12 @@ function prettyPrintClientMessage(connId, obj) {
         params
       )}`
     );
+    emitLogEvent({
+      level: "client",
+      conn: connId,
+      text: "StartupMessage",
+      data: { protocol: proto, params },
+    });
     return;
   }
 
@@ -127,6 +153,12 @@ function prettyPrintClientMessage(connId, obj) {
         connId,
         `Client -> Server: Simple Query (Q) len=${obj.msgLen} sql=${query}`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: `Q: ${query}`,
+        data: { len: obj.msgLen },
+      });
       break;
     }
     case "P": {
@@ -150,6 +182,12 @@ function prettyPrintClientMessage(connId, obj) {
           ","
         )}] sql=${query}`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: `P: ${stmtName}`,
+        data: { sql: query, paramOids },
+      });
       break;
     }
     case "B": {
@@ -199,6 +237,12 @@ function prettyPrintClientMessage(connId, obj) {
           params
         )} resultFormats=[${resultFormats}] paramFormats=[${paramFormats}]`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: `B: ${stmtName}`,
+        data: { portal, params, resultFormats, paramFormats },
+      });
       break;
     }
     case "E": {
@@ -210,14 +254,22 @@ function prettyPrintClientMessage(connId, obj) {
         connId,
         `Client -> Server: Execute (E) portal='${portal}' maxRows=${maxRows}`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: `E: ${portal}`,
+        data: { maxRows },
+      });
       break;
     }
     case "S": {
       debugLog(connId, `Client -> Server: Sync (S)`);
+      emitLogEvent({ level: "client", conn: connId, text: "Sync" });
       break;
     }
     case "X": {
       debugLog(connId, `Client -> Server: Terminate (X)`);
+      emitLogEvent({ level: "client", conn: connId, text: "Terminate" });
       break;
     }
     default: {
@@ -228,6 +280,12 @@ function prettyPrintClientMessage(connId, obj) {
           64
         )}`
       );
+      emitLogEvent({
+        level: "client",
+        conn: connId,
+        text: `Type=${t}`,
+        data: { len: obj.msgLen },
+      });
     }
   }
 }
@@ -272,8 +330,19 @@ function prettyPrintServerMessage(connId, obj) {
             "hex"
           )}`
         );
+        emitLogEvent({
+          level: "server",
+          conn: connId,
+          text: "Authentication: MD5Password",
+          data: { salt: salt.toString("hex") },
+        });
       } else {
         debugLog(connId, `Server -> Client: Authentication (R) ${desc}`);
+        emitLogEvent({
+          level: "server",
+          conn: connId,
+          text: `Authentication: ${desc}`,
+        });
       }
       break;
     }
@@ -311,6 +380,12 @@ function prettyPrintServerMessage(connId, obj) {
         connId,
         `Server -> Client: RowDescription (T) fields=${JSON.stringify(fields)}`
       );
+      emitLogEvent({
+        level: "server",
+        conn: connId,
+        text: "RowDescription",
+        data: { fields },
+      });
       break;
     }
     case "D": {
@@ -340,11 +415,22 @@ function prettyPrintServerMessage(connId, obj) {
         connId,
         `Server -> Client: DataRow (D) cols=${JSON.stringify(cols)}`
       );
+      emitLogEvent({
+        level: "server",
+        conn: connId,
+        text: "DataRow",
+        data: { cols },
+      });
       break;
     }
     case "C": {
       const tag = obj.payload.toString("utf8", 0, obj.payload.length - 1);
       debugLog(connId, `Server -> Client: CommandComplete (C) tag='${tag}'`);
+      emitLogEvent({
+        level: "server",
+        conn: connId,
+        text: `CommandComplete: ${tag}`,
+      });
       break;
     }
     case "E": {
@@ -362,6 +448,12 @@ function prettyPrintServerMessage(connId, obj) {
         connId,
         `Server -> Client: ErrorResponse (E) ${JSON.stringify(fields)}`
       );
+      emitLogEvent({
+        level: "error",
+        conn: connId,
+        text: "ErrorResponse",
+        data: fields,
+      });
       break;
     }
     case "Z": {
@@ -370,11 +462,17 @@ function prettyPrintServerMessage(connId, obj) {
         connId,
         `Server -> Client: ReadyForQuery (Z) status='${status}'`
       );
+      emitLogEvent({
+        level: "server",
+        conn: connId,
+        text: `ReadyForQuery: ${status}`,
+      });
       break;
     }
     case "N": {
       const msg = obj.payload.toString("utf8", 0, obj.payload.length - 1);
       debugLog(connId, `Server -> Client: Notice (N) ${msg}`);
+      emitLogEvent({ level: "server", conn: connId, text: `Notice: ${msg}` });
       break;
     }
     default: {
@@ -385,6 +483,12 @@ function prettyPrintServerMessage(connId, obj) {
           64
         )}`
       );
+      emitLogEvent({
+        level: "server",
+        conn: connId,
+        text: `Type=${t}`,
+        data: { len: obj.msgLen },
+      });
     }
   }
 }

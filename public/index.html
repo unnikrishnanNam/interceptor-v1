@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Interceptor Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Interceptor Admin</div>
+      <div class="controls">
+        <label
+          ><input type="checkbox" id="autoScroll" checked /> Auto-scroll</label
+        >
+        <select id="levelFilter">
+          <option value="all">All</option>
+          <option value="conn">Connections</option>
+          <option value="client">Client → Server</option>
+          <option value="server">Server → Client</option>
+          <option value="error">Errors</option>
+        </select>
+        <input type="text" id="search" placeholder="Search text..." />
+        <button id="clearBtn">Clear</button>
+      </div>
+    </header>
+    <main>
+      <section class="panes">
+        <div class="pane">
+          <h2>Live Logs</h2>
+          <div class="log-table" id="logTable"></div>
+        </div>
+        <div class="pane">
+          <h2>Blocked Queries</h2>
+          <div class="blocked" id="blocked"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/main.js"></script>
+  </body>
+</html>

@@ -1,8 +1,21 @@
 // Utility helpers shared across the proxy
+const logBus = require("./eventBus");
 
 function debugLog(prefix, ...args) {
   const time = new Date().toISOString();
   console.log(`[${time}] [${prefix}]`, ...args);
+}
+
+/** Emit a structured log event that the admin UI can consume via SSE. */
+function emitLogEvent(evt) {
+  try {
+    logBus.emit("log", {
+      ts: Date.now(),
+      ...evt,
+    });
+  } catch (_) {
+    // ignore
+  }
 }
 
 /** Helper: read C-string (null-terminated) from buffer starting at offset. Returns { str, nextOffset }. */
@@ -31,6 +44,7 @@ function hexPreview(buf, max = 32) {
 
 module.exports = {
   debugLog,
+  emitLogEvent,
   readCString,
   readInt16,
   readInt32,
