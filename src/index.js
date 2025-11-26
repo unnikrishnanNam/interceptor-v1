@@ -97,6 +97,7 @@ const server = net.createServer((clientSocket) => {
             preview: sql,
             messages: [m.raw],
             forward: (buf) => serverSocket.write(buf),
+            sendToClient: (buf) => clientSocket.write(buf)
           });
           emitLogEvent({
             kind: "blocked",
@@ -131,6 +132,7 @@ const server = net.createServer((clientSocket) => {
               preview,
               messages: batchBuffers.slice(0),
               forward: (buf) => serverSocket.write(buf),
+              sendToClient: (buf) => clientSocket.write(buf)
             });
             emitLogEvent({
               kind: "blocked",

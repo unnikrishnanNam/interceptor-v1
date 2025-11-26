@@ -172,3 +172,32 @@ main {
 .blocked .item button:hover {
   filter: brightness(1.05);
 }
+
+.blocked .item .actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.blocked .item button {
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: filter 0.2s;
+}
+
+.blocked .item button:hover {
+  filter: brightness(1.1);
+}
+
+.btn-approve {
+  background: var(--good); /* Green */
+  color: #0b1020;
+}
+
+.btn-deny {
+  background: var(--err); /* Red */
+  color: #fff;
+}

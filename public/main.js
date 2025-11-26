@@ -6,6 +6,14 @@
   const clearBtn = document.getElementById("clearBtn");
   const blockedEl = document.getElementById("blocked");
 
+  // BASIC ROLE SYSTEM: Identify the Authority
+  let authorityName = localStorage.getItem("interceptor_authority_name");
+  if (!authorityName) {
+    authorityName = prompt("Enter your Authority Name (e.g., Admin Alice):") || "Anonymous Admin";
+    localStorage.setItem("interceptor_authority_name", authorityName);
+  }
+  document.querySelector(".brand").textContent = `Interceptor Admin: ${authorityName}`;
+
   const rows = [];
 
   function renderHeader() {
@@ -39,7 +47,12 @@
     if (!rowMatchesFilters(evt)) return; // filtered out
     const div = document.createElement("div");
     div.className = "row";
-    const dirClass = evt.level || evt.direction || "conn";
+    
+    // Map 'rejected' kind to a specific CSS class for visual feedback
+    let dirClass = evt.level || evt.direction || "conn";
+    if (evt.kind === "rejected") dirClass = "error"; // Reuse 'error' red color for rejections
+    if (evt.kind === "approved") dirClass = "server"; // Reuse 'server' blue/green for approvals
+    
     const ts = new Date(evt.ts || Date.now()).toISOString();
     const conn = evt.conn || "";
     const msg = evt.text || evt.message || JSON.stringify(evt.data || evt);
@@ -76,28 +89,47 @@
       const { items } = await res.json();
       const root = blockedEl;
       root.innerHTML = "";
+      if (items.length === 0) {
+        root.innerHTML = '<div style="padding:10px; color:#666;">No pending requests.</div>';
+        return;
+      }
       for (const it of items) {
         const div = document.createElement("div");
         div.className = "item";
         const ts = new Date(it.ts).toLocaleTimeString();
         div.innerHTML = `
           <div>
-            <div class="meta">#${it.id} • ${ts} • ${it.connId} • ${
-          it.type
-        }</div>
+            <div class="meta">#${it.id} • ${ts} • ${it.connId} • ${it.type}</div>
             <div class="sql">${escapeHtml(it.preview)}</div>
           </div>
-          <div>
-            <button data-id="${it.id}">Approve</button>
+          <div class="actions">
+            <button class="btn-approve" data-id="${it.id}">Approve</button>
+            <button class="btn-deny" data-id="${it.id}">Deny</button>
           </div>
         `;
-        div
-          .querySelector("button")
-          .addEventListener("click", () => approveBlocked(it.id));
+        
+        // Attach event listeners
+        div.querySelector(".btn-approve").addEventListener("click", () => handleDecision(it.id, "approve"));
+        div.querySelector(".btn-deny").addEventListener("click", () => handleDecision(it.id, "reject"));
+        
         root.appendChild(div);
       }
     } catch (e) {
-      // ignore
+      console.error(e);
+    }
+  }
+
+  async function handleDecision(id, action) {
+    try {
+      await fetch(`/api/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, authority: authorityName }),
+      });
+      // Note: We don't strictly need to call refreshBlocked() here because 
+      // the server will emit an event (approved/rejected) which the EventSource below picks up.
+    } catch (e) {
+      console.error("Action failed", e);
     }
   }
 
@@ -122,20 +154,23 @@
     rerenderAll();
   });
 
-  renderHeader();
-  refreshBlocked();
-
   const es = new EventSource("/events");
   es.onmessage = (e) => {
     try {
       const evt = JSON.parse(e.data);
       rows.push(evt);
-      renderRow(evt);
-      if (evt.kind === "blocked" || evt.kind === "approved") {
+      renderRow(evt); // Update Log Table
+      
+      // Update Blocked List on any status change
+      if (evt.kind === "blocked" || evt.kind === "approved" || evt.kind === "rejected") {
         refreshBlocked();
       }
     } catch (_) {}
   };
+
+  renderHeader();
+  refreshBlocked();
+
   es.onerror = () => {
     // let browser auto-retry
   };
