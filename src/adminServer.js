@@ -57,8 +57,26 @@ function createAdminServer({ port = 8080, staticDir }) {
       req.on("data", (chunk) => (body += chunk));
       req.on("end", () => {
         try {
-          const { id } = JSON.parse(body || "{}");
+          const { id, authority } = JSON.parse(body || "{}");
           const ok = blocked.approve(Number(id));
+          res.writeHead(ok ? 200 : 400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok }));
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // REST: reject blocked
+    if (req.method === "POST" && req.url.startsWith("/api/reject")) {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        try {
+          const { id, authority } = JSON.parse(body || "{}");
+          const ok = blocked.reject(Number(id), authority);
           res.writeHead(ok ? 200 : 400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok }));
         } catch (e) {
