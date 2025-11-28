@@ -5,37 +5,334 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Interceptor Admin</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">Interceptor Admin</div>
-      <div class="controls">
-        <label
-          ><input type="checkbox" id="autoScroll" checked /> Auto-scroll</label
-        >
-        <select id="levelFilter">
-          <option value="all">All</option>
-          <option value="conn">Connections</option>
-          <option value="client">Client → Server</option>
-          <option value="server">Server → Client</option>
-          <option value="error">Errors</option>
-        </select>
-        <input type="text" id="search" placeholder="Search text..." />
-        <button id="clearBtn">Clear</button>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-screen">
+      <div class="login-container">
+        <div class="login-card">
+          <div class="login-header">
+            <svg
+              class="login-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
+            </svg>
+            <h1>Interceptor Admin</h1>
+            <p>PostgreSQL Wire Protocol Proxy</p>
+          </div>
+          <div class="login-form">
+            <div class="form-group">
+              <label for="username">Username</label>
+              <input
+                type="text"
+                id="username"
+                placeholder="Enter your username"
+                autocomplete="username"
+              />
+            </div>
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input
+                type="password"
+                id="password"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+              />
+            </div>
+            <button id="loginBtn" class="btn-primary">Sign In</button>
+            <div id="loginError" class="login-error"></div>
+          </div>
+        </div>
       </div>
-    </header>
-    <main>
-      <section class="panes">
-        <div class="pane">
-          <h2>Live Logs</h2>
-          <div class="log-table" id="logTable"></div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard" style="display: none">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <svg
+            class="sidebar-logo"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
+            />
+          </svg>
+          <span>Interceptor</span>
         </div>
-        <div class="pane">
-          <h2>Blocked Queries</h2>
-          <div class="blocked" id="blocked"></div>
+
+        <nav class="sidebar-nav">
+          <a href="#" class="nav-item active" data-page="home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            <span>Dashboard</span>
+          </a>
+          <a href="#" class="nav-item" data-page="logs">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            <span>Logs</span>
+          </a>
+          <a href="#" class="nav-item" data-page="blocked">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              />
+            </svg>
+            <span>Blocked Queries</span>
+            <span class="badge" id="blockedCount">0</span>
+          </a>
+          <a href="#" class="nav-item" data-page="config">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            <span>Configuration</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-info">
+            <div class="user-avatar"></div>
+            <div class="user-details">
+              <div class="user-name" id="userName">Admin</div>
+              <div class="user-role">Administrator</div>
+            </div>
+          </div>
+          <button id="logoutBtn" class="btn-logout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+          </button>
         </div>
-      </section>
-    </main>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Home/Dashboard Page -->
+        <div id="homePage" class="page active">
+          <div class="page-header">
+            <h1>Dashboard</h1>
+            <p>Real-time PostgreSQL proxy statistics and monitoring</p>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">Active Connections</div>
+                <div class="stat-value" id="activeConnections">0</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">Total Queries</div>
+                <div class="stat-value" id="totalQueries">0</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">Blocked Queries</div>
+                <div class="stat-value" id="statBlockedQueries">0</div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon red">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">Errors</div>
+                <div class="stat-value" id="errorCount">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="charts-row">
+            <div class="chart-card">
+              <h3>Recent Activity</h3>
+              <div id="recentActivity" class="activity-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs Page -->
+        <div id="logsPage" class="page">
+          <div class="page-header">
+            <h1>Live Logs</h1>
+            <div class="header-controls">
+              <label class="switch">
+                <input type="checkbox" id="autoScroll" checked />
+                <span class="slider"></span>
+                <span class="switch-label">Auto-scroll</span>
+              </label>
+              <select id="levelFilter" class="select">
+                <option value="all">All Levels</option>
+                <option value="conn">Connections</option>
+                <option value="client">Client → Server</option>
+                <option value="server">Server → Client</option>
+                <option value="error">Errors</option>
+              </select>
+              <input
+                type="text"
+                id="search"
+                class="input"
+                placeholder="Search logs..."
+              />
+              <button id="clearBtn" class="btn-secondary">Clear Logs</button>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="log-table" id="logTable"></div>
+          </div>
+        </div>
+
+        <!-- Blocked Queries Page -->
+        <div id="blockedPage" class="page">
+          <div class="page-header">
+            <h1>Blocked Queries</h1>
+            <p>Review and approve/reject pending database queries</p>
+          </div>
+          <div class="table-card">
+            <div id="blocked" class="blocked-queries"></div>
+          </div>
+        </div>
+
+        <!-- Configuration Page -->
+        <div id="configPage" class="page">
+          <div class="page-header">
+            <h1>Configuration</h1>
+            <p>Proxy settings and connection details</p>
+          </div>
+          <div class="config-grid">
+            <div class="config-card">
+              <h3>Proxy Settings</h3>
+              <div class="config-item">
+                <label>Proxy Port</label>
+                <div class="config-value">5432</div>
+              </div>
+              <div class="config-item">
+                <label>Target Host</label>
+                <div class="config-value">127.0.0.1</div>
+              </div>
+              <div class="config-item">
+                <label>Target Port</label>
+                <div class="config-value">5433</div>
+              </div>
+              <div class="config-item">
+                <label>Admin Port</label>
+                <div class="config-value">8080</div>
+              </div>
+            </div>
+
+            <div class="config-card">
+              <h3>Connection Info</h3>
+              <div class="config-item">
+                <label>Status</label>
+                <div class="config-value">
+                  <span class="status-badge online">Online</span>
+                </div>
+              </div>
+              <div class="config-item">
+                <label>Uptime</label>
+                <div class="config-value" id="uptime">0h 0m</div>
+              </div>
+              <div class="config-item">
+                <label>Protocol Version</label>
+                <div class="config-value">PostgreSQL Wire Protocol 3.0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
 
     <script src="/main.js"></script>
   </body>
