@@ -1,15 +1,27 @@
 {
   "name": "interceptor-v1",
-  "version": "1.0.0",
-  "description": "PostgreSQL wire-protocol proxy that logs messages for debugging",
+  "version": "1.1.0",
+  "description": "Optimized PostgreSQL wire-protocol proxy with query blocking and admin UI",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node src/index.js",
+    "dev": "node --inspect src/index.js",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "postgresql",
+    "proxy",
+    "wire-protocol",
+    "debugging",
+    "query-interception"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0"
+  }
 }

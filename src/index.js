@@ -26,6 +26,8 @@ createAdminServer({
 
 const server = net.createServer((clientSocket) => {
   const connId = `${clientSocket.remoteAddress}:${clientSocket.remotePort}`;
+  let connectionClosed = false;
+
   debugLog(
     connId,
     `Client connected. Opening connection to Postgres ${PG_HOST}:${PG_PORT}`
@@ -60,21 +62,18 @@ const server = net.createServer((clientSocket) => {
   clientSocket.on("data", (chunk) => {
     if (passthroughTLS) {
       // Once TLS is negotiated, we cannot parse; just forward bytes
-      const ok = serverSocket.write(chunk);
-      if (!ok) debugLog(connId, `backpressure on serverSocket`);
+      serverSocket.write(chunk);
       return;
     }
     try {
       const msgs = clientParser.push(chunk);
       for (const m of msgs) {
-        // Log as before
         prettyPrintClientMessage(connId, m);
 
         // Forwarding/blocking logic
         if (m.startup) {
           // Allow startup and negotiation to pass through
-          if (m.raw) serverSocket.write(m.raw);
-          else serverSocket.write(chunk); // fallback
+          serverSocket.write(m.raw || chunk);
           continue;
         }
 
@@ -88,6 +87,7 @@ const server = net.createServer((clientSocket) => {
           t === "C" ||
           t === "S" ||
           t === "H";
+
         if (t === "Q") {
           // Simple query: block as single item
           const sql = m.payload.toString("utf8", 0, m.payload.length - 1);
@@ -97,7 +97,7 @@ const server = net.createServer((clientSocket) => {
             preview: sql,
             messages: [m.raw],
             forward: (buf) => serverSocket.write(buf),
-            sendToClient: (buf) => clientSocket.write(buf)
+            sendToClient: (buf) => clientSocket.write(buf),
           });
           emitLogEvent({
             kind: "blocked",
@@ -132,7 +132,7 @@ const server = net.createServer((clientSocket) => {
               preview,
               messages: batchBuffers.slice(0),
               forward: (buf) => serverSocket.write(buf),
-              sendToClient: (buf) => clientSocket.write(buf)
+              sendToClient: (buf) => clientSocket.write(buf),
             });
             emitLogEvent({
               kind: "blocked",
@@ -153,15 +153,13 @@ const server = net.createServer((clientSocket) => {
     } catch (e) {
       debugLog(connId, `Error parsing client chunk: ${e.stack || e}`);
       // If parsing fails (e.g., TLS), pass through bytes
-      const ok = serverSocket.write(chunk);
-      if (!ok) debugLog(connId, `backpressure on serverSocket`);
+      serverSocket.write(chunk);
     }
   });
 
   serverSocket.on("data", (chunk) => {
     if (passthroughTLS) {
-      const ok = clientSocket.write(chunk);
-      if (!ok) debugLog(connId, `backpressure on clientSocket`);
+      clientSocket.write(chunk);
       return;
     }
     try {
@@ -176,30 +174,31 @@ const server = net.createServer((clientSocket) => {
     } catch (e) {
       debugLog(connId, `Error parsing server chunk: ${e.stack || e}`);
     }
-    const ok = clientSocket.write(chunk);
-    if (!ok) debugLog(connId, `backpressure on clientSocket`);
+    clientSocket.write(chunk);
   });
 
   const onCloseBoth = (who) => {
+    if (connectionClosed) return;
+    connectionClosed = true;
+
     debugLog(connId, `Connection closed (${who}). Destroying both sockets.`);
     emitLogEvent({
       level: "conn",
       conn: connId,
       text: `Connection closed (${who})`,
     });
-    clientSocket.destroy();
-    serverSocket.destroy();
+
+    if (!clientSocket.destroyed) clientSocket.destroy();
+    if (!serverSocket.destroyed) serverSocket.destroy();
   };
 
   clientSocket.on("end", () => onCloseBoth("client end"));
-  clientSocket.on("close", () => onCloseBoth("client close"));
   clientSocket.on("error", (err) => {
     debugLog(connId, `clientSocket error: ${err.message}`);
     onCloseBoth("client error");
   });
 
   serverSocket.on("end", () => onCloseBoth("server end"));
-  serverSocket.on("close", () => onCloseBoth("server close"));
   serverSocket.on("error", (err) => {
     debugLog(connId, `serverSocket error: ${err.message}`);
     onCloseBoth("server error");

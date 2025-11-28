@@ -1,17 +1,28 @@
 const logBus = require("./eventBus");
 
 let nextId = 1;
-const blocked = new Map(); 
+const blocked = new Map();
 // id -> { id, connId, ts, preview, messages, type, forward, sendToClient }
 
 function list() {
   // Return everything except the function callbacks
-  return Array.from(blocked.values()).map(({ forward, sendToClient, ...rest }) => rest);
+  return Array.from(blocked.values()).map(
+    ({ forward, sendToClient, ...rest }) => rest
+  );
 }
 
 function add({ connId, preview, messages, type, forward, sendToClient }) {
   const id = nextId++;
-  const item = { id, connId, ts: Date.now(), preview, messages, type, forward, sendToClient };
+  const item = {
+    id,
+    connId,
+    ts: Date.now(),
+    preview,
+    messages,
+    type,
+    forward,
+    sendToClient,
+  };
   blocked.set(id, item);
   logBus.emit("log", {
     kind: "blocked",
@@ -23,7 +34,7 @@ function add({ connId, preview, messages, type, forward, sendToClient }) {
   return id;
 }
 
-function approve(id, authorityName = "Unknown") {
+function approve(id) {
   const item = blocked.get(id);
   if (!item) return false;
   blocked.delete(id);
@@ -36,7 +47,7 @@ function approve(id, authorityName = "Unknown") {
       kind: "approved",
       id,
       conn: item.connId,
-      text: `Approved by ${authorityName}: ${item.preview}`,
+      text: `Approved: ${item.preview}`,
     });
     return true;
   } catch (e) {
@@ -57,9 +68,11 @@ function reject(id, authorityName = "Unknown") {
     // Do NOT forward to server.
     // Instead, send a Postgres ErrorResponse back to the client.
     if (item.sendToClient) {
-        item.sendToClient(createErrorPacket("Query rejected by Authority (" + authorityName + ")"));
+      item.sendToClient(
+        createErrorPacket("Query rejected by Authority (" + authorityName + ")")
+      );
     }
-    
+
     logBus.emit("log", {
       kind: "rejected",
       id,
@@ -74,51 +87,58 @@ function reject(id, authorityName = "Unknown") {
 }
 
 /**
- * Helper to construct a Postgres ErrorResponse (Type 'E') 
+ * Helper to construct a Postgres ErrorResponse (Type 'E')
  * followed by ReadyForQuery (Type 'Z') so the client doesn't hang.
  */
 function createErrorPacket(msg) {
-    // 1. ErrorResponse (E)
-    // Fields: S(Severity)=ERROR, C(Code)=P0001, M(Message)=msg
-    const severity = "ERROR";
-    const code = "P0001"; // Raise Exception code
-    const message = msg;
-    
-    // Calculate length of payload: 
-    // 1(Type) + string + 0 + 1(Type) + string + 0 + 1(Type) + string + 0 + 1(null terminator)
-    const payloadLen = 
-        1 + severity.length + 1 +
-        1 + code.length + 1 + 
-        1 + message.length + 1 + 
-        1; 
+  // ErrorResponse fields
+  const severity = "ERROR";
+  const code = "P0001";
+  const message = msg;
 
-    const errorBuf = Buffer.alloc(1 + 4 + payloadLen);
-    let offset = 0;
-    
-    errorBuf.write("E", offset); offset++;
-    errorBuf.writeInt32BE(4 + payloadLen, offset); offset += 4;
-    
-    errorBuf.write("S", offset); offset++;
-    errorBuf.write(severity, offset); offset += severity.length;
-    errorBuf.writeUInt8(0, offset); offset++; // null
+  // Calculate payload length
+  const payloadLen =
+    1 + severity.length + 1 + 1 + code.length + 1 + 1 + message.length + 1 + 1;
+  const errorLen = 1 + 4 + payloadLen;
+  const readyLen = 6; // 'Z' + length(4) + status(1)
 
-    errorBuf.write("C", offset); offset++;
-    errorBuf.write(code, offset); offset += code.length;
-    errorBuf.writeUInt8(0, offset); offset++;
+  const buf = Buffer.allocUnsafe(errorLen + readyLen);
+  let offset = 0;
 
-    errorBuf.write("M", offset); offset++;
-    errorBuf.write(message, offset); offset += message.length;
-    errorBuf.writeUInt8(0, offset); offset++;
-    
-    errorBuf.writeUInt8(0, offset); offset++; // final null
+  // ErrorResponse
+  buf.write("E", offset);
+  offset++;
+  buf.writeInt32BE(4 + payloadLen, offset);
+  offset += 4;
+  buf.write("S", offset);
+  offset++;
+  buf.write(severity, offset);
+  offset += severity.length;
+  buf.writeUInt8(0, offset);
+  offset++;
+  buf.write("C", offset);
+  offset++;
+  buf.write(code, offset);
+  offset += code.length;
+  buf.writeUInt8(0, offset);
+  offset++;
+  buf.write("M", offset);
+  offset++;
+  buf.write(message, offset);
+  offset += message.length;
+  buf.writeUInt8(0, offset);
+  offset++;
+  buf.writeUInt8(0, offset);
+  offset++;
 
-    // 2. ReadyForQuery (Z) -> Transaction status 'I' (Idle)
-    const readyBuf = Buffer.alloc(1 + 4 + 1);
-    readyBuf.write("Z", 0);
-    readyBuf.writeInt32BE(5, 1);
-    readyBuf.write("I", 5);
+  // ReadyForQuery
+  buf.write("Z", offset);
+  offset++;
+  buf.writeInt32BE(5, offset);
+  offset += 4;
+  buf.write("I", offset);
 
-    return Buffer.concat([errorBuf, readyBuf]);
+  return buf;
 }
 
 module.exports = { list, add, approve, reject };

@@ -1,10 +1,35 @@
-# Interceptor v1 — PostgreSQL Wire Protocol Proxy
+# Interceptor v1 — PostgreSQL Wire Protocol Proxy (Optimized)
 
-A simple PostgreSQL wire-protocol proxy that prints messages flowing between client and server (Startup/Authentication and Extended Query protocol messages). Designed for debugging and learning the protocol.
+A high-performance PostgreSQL wire-protocol proxy that intercepts and logs messages flowing between client and server. Features real-time query blocking with an admin approval workflow and a modern web UI.
 
-- Forwards bytes unmodified — no TLS termination.
-- Parses and logs: Startup/SSL negotiation, Query/Parse/Bind/Execute/Sync, RowDescription/DataRow/CommandComplete, errors/notices.
-- Built-in modern admin web portal to view logs live (SSE-based) at http://127.0.0.1:8080 by default.
+## Features
+
+- ✅ **Zero-copy forwarding** — Forwards bytes unmodified (no TLS termination)
+- 🔍 **Protocol parsing** — Startup/Authentication, Extended Query protocol (Parse/Bind/Execute), Simple Query
+- 🚫 **Query blocking** — Intercept queries for manual approval/rejection before execution
+- 📊 **Real-time admin UI** — Modern web portal with SSE-based live logs at http://127.0.0.1:8080
+- ⚡ **Performance optimizations** — Buffer pooling, reduced allocations, optimized parsing
+
+## Optimizations (v1.1.0)
+
+### Backend
+
+- **Parser**: Cached buffer references, eliminated redundant string conversions, reduced closure allocations
+- **Connection handling**: Fixed duplicate socket close events, streamlined TLS passthrough detection
+- **Admin server**: Added request body size limits (1MB), cached MIME types, improved SSE client cleanup
+- **Buffer operations**: Using `allocUnsafe` where safe, reduced `Buffer.concat` calls
+
+### Frontend
+
+- **Debounced search** (300ms) to reduce unnecessary re-renders
+- **DocumentFragment batching** for efficient DOM updates
+- **Removed duplicate API calls** — SSE events trigger refreshes automatically
+
+### Code quality
+
+- Removed dead code (duplicate `proxy.js`, unused parameters)
+- Eliminated unnecessary try-catch wrappers
+- Streamlined error handling paths
 
 ## How SSL/TLS affects logging
 
@@ -19,13 +44,24 @@ A simple PostgreSQL wire-protocol proxy that prints messages flowing between cli
 
 ## Setup
 
-1. Start Postgres in Docker (optional):
+1. **Start Postgres in Docker** (optional):
+
+   ```bash
+   npm run docker:up
+   ```
 
    - Exposes Postgres on host port `5433` to avoid conflicts
    - Creates DB `testdb` with user `testuser` and password `testpass@123`
 
-2. Start the proxy:
-   - Listens on `5432` and forwards to `127.0.0.1:5433` by default.
+2. **Start the proxy**:
+
+   ```bash
+   npm start
+   ```
+
+   - Listens on `5432` and forwards to `127.0.0.1:5433` by default
+
+3. **Open admin UI**: http://127.0.0.1:8080
 
 ### Environment variables
 
@@ -36,23 +72,47 @@ A simple PostgreSQL wire-protocol proxy that prints messages flowing between cli
 
 ## Usage
 
-- With psql (plaintext for full logs):
-  - `psql "postgresql://testuser:testpass%40123@127.0.0.1:5432/testdb?sslmode=disable"`
-- With DataGrip:
+- **With psql** (plaintext for full logs):
+
+  ```bash
+  psql "postgresql://testuser:testpass%40123@127.0.0.1:5432/testdb?sslmode=disable"
+  ```
+
+- **With DataGrip**:
   - Host: `127.0.0.1`, Port: `5432`
   - SSL Mode: `disable` (or set `sslmode=disable` in Advanced)
 
 Perform queries and watch the proxy output log incoming/outgoing protocol messages.
 
-Open the admin portal to view structured logs:
+**Admin portal**: http://127.0.0.1:8080 (or the port you set in `ADMIN_PORT`)
 
-- http://127.0.0.1:8080 (or the port you set in `ADMIN_PORT`)
+- View live logs with filtering and search (debounced)
+- Approve/reject blocked queries in real-time
 
 ## Development
 
-- Start proxy:
-  - `npm start`
-- Lint/format: use your preferred tools; code is plain CommonJS.
+```bash
+# Start proxy
+npm start
+
+# Start with debugging
+npm run dev
+
+# Docker management
+npm run docker:up      # Start Postgres container
+npm run docker:down    # Stop and remove containers
+npm run docker:logs    # View Postgres logs
+```
+
+## Performance Tips
+
+- For **high-throughput scenarios**, consider:
+
+  - Reducing console logging (comment out `debugLog` calls in production)
+  - Increasing Node.js memory limit: `node --max-old-space-size=4096 src/index.js`
+  - Using `NODE_ENV=production` to disable verbose logging
+
+- **Memory usage**: The proxy maintains in-memory logs and blocked queries. For long-running sessions, implement periodic cleanup or log rotation.
 
 ## Advanced: TLS termination (not implemented)
 

@@ -124,8 +124,8 @@ function prettyPrintClientMessage(connId, obj) {
     const params = {};
     while (off < obj.payload.length) {
       const { str, nextOffset } = readCString(obj.payload, off);
+      if (!str) break;
       off = nextOffset;
-      if (str.length === 0) break;
       const { str: val, nextOffset: next2 } = readCString(obj.payload, off);
       off = next2;
       params[str] = val;
@@ -146,35 +146,37 @@ function prettyPrintClientMessage(connId, obj) {
   }
 
   const t = obj.type;
+  const payload = obj.payload;
+  const msgLen = obj.msgLen;
+
   switch (t) {
     case "Q": {
-      const query = obj.payload.toString("utf8", 0, obj.payload.length - 1);
+      const query = payload.toString("utf8", 0, payload.length - 1);
       debugLog(
         connId,
-        `Client -> Server: Simple Query (Q) len=${obj.msgLen} sql=${query}`
+        `Client -> Server: Simple Query (Q) len=${msgLen} sql=${query}`
       );
       emitLogEvent({
         level: "client",
         conn: connId,
         text: `Q: ${query}`,
-        data: { len: obj.msgLen },
+        data: { len: msgLen },
       });
       break;
     }
     case "P": {
       let off = 0;
-      const { str: stmtName, nextOffset } = readCString(obj.payload, off);
+      const { str: stmtName, nextOffset } = readCString(payload, off);
       off = nextOffset;
-      const { str: query, nextOffset: noff } = readCString(obj.payload, off);
+      const { str: query, nextOffset: noff } = readCString(payload, off);
       off = noff;
       const paramCount =
-        obj.payload.length >= off + 2 ? readInt16(obj.payload, off) : 0;
+        payload.length >= off + 2 ? readInt16(payload, off) : 0;
       off += 2;
       const paramOids = [];
       for (let i = 0; i < paramCount; i++) {
-        const oid = obj.payload.readInt32BE(off);
+        paramOids.push(payload.readInt32BE(off));
         off += 4;
-        paramOids.push(oid);
       }
       debugLog(
         connId,
@@ -192,43 +194,40 @@ function prettyPrintClientMessage(connId, obj) {
     }
     case "B": {
       let off = 0;
-      const { str: portal, nextOffset } = readCString(obj.payload, off);
+      const { str: portal, nextOffset } = readCString(payload, off);
       off = nextOffset;
-      const { str: stmtName, nextOffset: n2 } = readCString(obj.payload, off);
+      const { str: stmtName, nextOffset: n2 } = readCString(payload, off);
       off = n2;
-      const paramFormatCount = readInt16(obj.payload, off);
+      const paramFormatCount = readInt16(payload, off);
       off += 2;
       const paramFormats = [];
       for (let i = 0; i < paramFormatCount; i++) {
-        paramFormats.push(readInt16(obj.payload, off));
+        paramFormats.push(readInt16(payload, off));
         off += 2;
       }
-      const paramCount = readInt16(obj.payload, off);
+      const paramCount = readInt16(payload, off);
       off += 2;
       const params = [];
       for (let i = 0; i < paramCount; i++) {
-        const valLen = obj.payload.readInt32BE(off);
+        const valLen = payload.readInt32BE(off);
         off += 4;
         if (valLen === -1) {
           params.push(null);
         } else {
-          const valBuf = obj.payload.slice(off, off + valLen);
+          const valBuf = payload.slice(off, off + valLen);
           off += valLen;
-          const asUtf = (() => {
-            try {
-              return valBuf.toString("utf8");
-            } catch (e) {
-              return null;
-            }
-          })();
-          params.push({ len: valLen, preview: asUtf || hexPreview(valBuf) });
+          try {
+            params.push({ len: valLen, preview: valBuf.toString("utf8") });
+          } catch (e) {
+            params.push({ len: valLen, preview: hexPreview(valBuf) });
+          }
         }
       }
-      const resultFormatCount = readInt16(obj.payload, off);
+      const resultFormatCount = readInt16(payload, off);
       off += 2;
       const resultFormats = [];
       for (let i = 0; i < resultFormatCount; i++) {
-        resultFormats.push(readInt16(obj.payload, off));
+        resultFormats.push(readInt16(payload, off));
         off += 2;
       }
       debugLog(
@@ -247,9 +246,9 @@ function prettyPrintClientMessage(connId, obj) {
     }
     case "E": {
       let off = 0;
-      const { str: portal, nextOffset } = readCString(obj.payload, off);
+      const { str: portal, nextOffset } = readCString(payload, off);
       off = nextOffset;
-      const maxRows = obj.payload.readInt32BE(off);
+      const maxRows = payload.readInt32BE(off);
       debugLog(
         connId,
         `Client -> Server: Execute (E) portal='${portal}' maxRows=${maxRows}`
@@ -275,8 +274,8 @@ function prettyPrintClientMessage(connId, obj) {
     default: {
       debugLog(
         connId,
-        `Client -> Server: Type='${t}' len=${obj.msgLen} payload=${hexPreview(
-          obj.payload,
+        `Client -> Server: Type='${t}' len=${msgLen} payload=${hexPreview(
+          payload,
           64
         )}`
       );
@@ -284,7 +283,7 @@ function prettyPrintClientMessage(connId, obj) {
         level: "client",
         conn: connId,
         text: `Type=${t}`,
-        data: { len: obj.msgLen },
+        data: { len: msgLen },
       });
     }
   }
@@ -308,10 +307,14 @@ function prettyPrintServerMessage(connId, obj) {
     );
     return;
   }
+
   const t = obj.type;
+  const payload = obj.payload;
+  const msgLen = obj.msgLen;
+
   switch (t) {
     case "R": {
-      const code = obj.payload.readInt32BE(0);
+      const code = payload.readInt32BE(0);
       const desc =
         code === 0
           ? "AuthenticationOk"
@@ -323,7 +326,7 @@ function prettyPrintServerMessage(connId, obj) {
           ? "GSS"
           : `code=${code}`;
       if (code === 5) {
-        const salt = obj.payload.slice(4, 8);
+        const salt = payload.slice(4, 8);
         debugLog(
           connId,
           `Server -> Client: Authentication (R) MD5Password salt=${salt.toString(
@@ -348,23 +351,23 @@ function prettyPrintServerMessage(connId, obj) {
     }
     case "T": {
       let off = 0;
-      const fieldCount = readInt16(obj.payload, off);
+      const fieldCount = readInt16(payload, off);
       off += 2;
       const fields = [];
       for (let i = 0; i < fieldCount; i++) {
-        const { str: name, nextOffset } = readCString(obj.payload, off);
+        const { str: name, nextOffset } = readCString(payload, off);
         off = nextOffset;
-        const tableOID = obj.payload.readInt32BE(off);
+        const tableOID = payload.readInt32BE(off);
         off += 4;
-        const colAttr = readInt16(obj.payload, off);
+        const colAttr = readInt16(payload, off);
         off += 2;
-        const dataType = obj.payload.readInt32BE(off);
+        const dataType = payload.readInt32BE(off);
         off += 4;
-        const dataSize = readInt16(obj.payload, off);
+        const dataSize = readInt16(payload, off);
         off += 2;
-        const typeModifier = obj.payload.readInt32BE(off);
+        const typeModifier = payload.readInt32BE(off);
         off += 4;
-        const format = readInt16(obj.payload, off);
+        const format = readInt16(payload, off);
         off += 2;
         fields.push({
           name,
@@ -390,25 +393,22 @@ function prettyPrintServerMessage(connId, obj) {
     }
     case "D": {
       let off = 0;
-      const colCount = readInt16(obj.payload, off);
+      const colCount = readInt16(payload, off);
       off += 2;
       const cols = [];
       for (let i = 0; i < colCount; i++) {
-        const len = obj.payload.readInt32BE(off);
+        const len = payload.readInt32BE(off);
         off += 4;
         if (len === -1) {
           cols.push(null);
         } else {
-          const valBuf = obj.payload.slice(off, off + len);
+          const valBuf = payload.slice(off, off + len);
           off += len;
-          const asUtf = (() => {
-            try {
-              return valBuf.toString("utf8");
-            } catch (e) {
-              return null;
-            }
-          })();
-          cols.push(asUtf !== null ? asUtf : hexPreview(valBuf));
+          try {
+            cols.push(valBuf.toString("utf8"));
+          } catch (e) {
+            cols.push(hexPreview(valBuf));
+          }
         }
       }
       debugLog(
@@ -424,7 +424,7 @@ function prettyPrintServerMessage(connId, obj) {
       break;
     }
     case "C": {
-      const tag = obj.payload.toString("utf8", 0, obj.payload.length - 1);
+      const tag = payload.toString("utf8", 0, payload.length - 1);
       debugLog(connId, `Server -> Client: CommandComplete (C) tag='${tag}'`);
       emitLogEvent({
         level: "server",
@@ -436,11 +436,10 @@ function prettyPrintServerMessage(connId, obj) {
     case "E": {
       let off = 0;
       const fields = {};
-      while (off < obj.payload.length) {
-        const fieldType = obj.payload[off];
-        off++;
+      while (off < payload.length) {
+        const fieldType = payload[off++];
         if (fieldType === 0) break;
-        const { str, nextOffset } = readCString(obj.payload, off);
+        const { str, nextOffset } = readCString(payload, off);
         off = nextOffset;
         fields[String.fromCharCode(fieldType)] = str;
       }
@@ -457,7 +456,7 @@ function prettyPrintServerMessage(connId, obj) {
       break;
     }
     case "Z": {
-      const status = obj.payload.toString("utf8", 0, obj.payload.length);
+      const status = payload.toString("utf8", 0, payload.length);
       debugLog(
         connId,
         `Server -> Client: ReadyForQuery (Z) status='${status}'`
@@ -470,7 +469,7 @@ function prettyPrintServerMessage(connId, obj) {
       break;
     }
     case "N": {
-      const msg = obj.payload.toString("utf8", 0, obj.payload.length - 1);
+      const msg = payload.toString("utf8", 0, payload.length - 1);
       debugLog(connId, `Server -> Client: Notice (N) ${msg}`);
       emitLogEvent({ level: "server", conn: connId, text: `Notice: ${msg}` });
       break;
@@ -478,8 +477,8 @@ function prettyPrintServerMessage(connId, obj) {
     default: {
       debugLog(
         connId,
-        `Server -> Client: Type='${t}' len=${obj.msgLen} payload=${hexPreview(
-          obj.payload,
+        `Server -> Client: Type='${t}' len=${msgLen} payload=${hexPreview(
+          payload,
           64
         )}`
       );
@@ -487,7 +486,7 @@ function prettyPrintServerMessage(connId, obj) {
         level: "server",
         conn: connId,
         text: `Type=${t}`,
-        data: { len: obj.msgLen },
+        data: { len: msgLen },
       });
     }
   }

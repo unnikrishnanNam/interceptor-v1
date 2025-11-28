@@ -8,14 +8,10 @@ function debugLog(prefix, ...args) {
 
 /** Emit a structured log event that the admin UI can consume via SSE. */
 function emitLogEvent(evt) {
-  try {
-    logBus.emit("log", {
-      ts: Date.now(),
-      ...evt,
-    });
-  } catch (_) {
-    // ignore
-  }
+  logBus.emit("log", {
+    ts: Date.now(),
+    ...evt,
+  });
 }
 
 /** Helper: read C-string (null-terminated) from buffer starting at offset. Returns { str, nextOffset }. */

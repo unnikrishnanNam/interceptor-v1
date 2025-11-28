@@ -4,6 +4,21 @@ const path = require("path");
 const logBus = require("./eventBus");
 const blocked = require("./blockedStore");
 
+const MAX_BODY_SIZE = 1024 * 1024; // 1MB limit for request bodies
+
+// Cache MIME types for common extensions
+const MIME_TYPES = {
+  ".html": "text/html",
+  ".css": "text/css",
+  ".js": "text/javascript",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
+
 function createAdminServer({ port = 8080, staticDir }) {
   const clients = new Set();
 
@@ -20,25 +35,24 @@ function createAdminServer({ port = 8080, staticDir }) {
       res.write(`retry: 2000\n\n`);
 
       const onEvent = (evt) => {
-        try {
-          res.write(`data: ${JSON.stringify(evt)}\n\n`);
-        } catch (_) {
-          // ignore
-        }
+        if (res.writableEnded) return;
+        res.write(`data: ${JSON.stringify(evt)}\n\n`);
       };
       logBus.on("log", onEvent);
       clients.add(res);
 
       // heartbeat every 15s to keep connection alive
       const hb = setInterval(() => {
-        res.write(": ping\n\n");
+        if (!res.writableEnded) {
+          res.write(": ping\n\n");
+        }
       }, 15000);
 
       req.on("close", () => {
         clearInterval(hb);
         logBus.off("log", onEvent);
         clients.delete(res);
-        res.end();
+        if (!res.writableEnded) res.end();
       });
       return;
     }
@@ -54,10 +68,18 @@ function createAdminServer({ port = 8080, staticDir }) {
     // REST: approve blocked
     if (req.method === "POST" && req.url.startsWith("/api/approve")) {
       let body = "";
-      req.on("data", (chunk) => (body += chunk));
+      let bodySize = 0;
+      req.on("data", (chunk) => {
+        bodySize += chunk.length;
+        if (bodySize > MAX_BODY_SIZE) {
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
       req.on("end", () => {
         try {
-          const { id, authority } = JSON.parse(body || "{}");
+          const { id } = JSON.parse(body || "{}");
           const ok = blocked.approve(Number(id));
           res.writeHead(ok ? 200 : 400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok }));
@@ -72,7 +94,15 @@ function createAdminServer({ port = 8080, staticDir }) {
     // REST: reject blocked
     if (req.method === "POST" && req.url.startsWith("/api/reject")) {
       let body = "";
-      req.on("data", (chunk) => (body += chunk));
+      let bodySize = 0;
+      req.on("data", (chunk) => {
+        bodySize += chunk.length;
+        if (bodySize > MAX_BODY_SIZE) {
+          req.destroy();
+          return;
+        }
+        body += chunk;
+      });
       req.on("end", () => {
         try {
           const { id, authority } = JSON.parse(body || "{}");
@@ -101,14 +131,7 @@ function createAdminServer({ port = 8080, staticDir }) {
         return;
       }
       const ext = path.extname(filePath);
-      const type =
-        ext === ".html"
-          ? "text/html"
-          : ext === ".css"
-          ? "text/css"
-          : ext === ".js"
-          ? "text/javascript"
-          : "application/octet-stream";
+      const type = MIME_TYPES[ext] || "application/octet-stream";
       res.writeHead(200, { "Content-Type": type });
       res.end(data);
     });
