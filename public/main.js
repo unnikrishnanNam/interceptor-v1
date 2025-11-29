@@ -1,25 +1,63 @@
 (function () {
   // ============ AUTHENTICATION ============
-  const AUTH_KEY = "interceptor_auth";
-  const AUTHORITY_KEY = "interceptor_authority_name";
+  const TOKEN_KEY = "interceptor_token";
+  const USER_KEY = "interceptor_user";
 
-  // Simple auth check (in production, use proper JWT/session management)
+  let currentUser = null;
+  let authToken = null;
+
   function isAuthenticated() {
-    return localStorage.getItem(AUTH_KEY) === "true";
-  }
-
-  function login(username, password) {
-    // Simple demo auth - in production, validate against backend
-    if (username && password) {
-      localStorage.setItem(AUTH_KEY, "true");
-      localStorage.setItem(AUTHORITY_KEY, username);
-      return true;
+    authToken = localStorage.getItem(TOKEN_KEY);
+    const userStr = localStorage.getItem(USER_KEY);
+    if (authToken && userStr) {
+      try {
+        currentUser = JSON.parse(userStr);
+        return true;
+      } catch (e) {
+        return false;
+      }
     }
     return false;
   }
 
-  function logout() {
-    localStorage.removeItem(AUTH_KEY);
+  async function login(username, password) {
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem(TOKEN_KEY, authToken);
+        localStorage.setItem(USER_KEY, JSON.stringify(currentUser));
+        return { success: true };
+      } else {
+        const error = await res.json();
+        return { success: false, message: error.error || "Login failed" };
+      }
+    } catch (e) {
+      return { success: false, message: "Network error" };
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch("/api/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    } catch (e) {
+      console.error("Logout error:", e);
+    }
+
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    authToken = null;
+    currentUser = null;
     showLoginScreen();
   }
 
@@ -31,28 +69,60 @@
   function showDashboard() {
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("dashboard").style.display = "flex";
-    const username = localStorage.getItem(AUTHORITY_KEY) || "Admin";
-    document.getElementById("userName").textContent = username;
+
+    if (currentUser) {
+      document.getElementById("userName").textContent = currentUser.username;
+      const roleEl = document.querySelector(".user-role");
+      if (roleEl) {
+        roleEl.textContent =
+          currentUser.role === "admin" ? "Administrator" : "Peer";
+      }
+
+      // Show/hide admin-only features
+      const usersNavItem = document.getElementById("usersNavItem");
+      if (usersNavItem) {
+        usersNavItem.style.display =
+          currentUser.role === "admin" ? "flex" : "none";
+      }
+    }
+
+    // Initialize app when showing dashboard (fixes reload issue)
+    if (!window.appInitialized) {
+      initializeApp();
+      window.appInitialized = true;
+    }
   }
 
-  // ============ INITIALIZATION ============
-  if (isAuthenticated()) {
-    showDashboard();
-  } else {
-    showLoginScreen();
+  // Helper for authenticated API calls
+  async function fetchAPI(url, options = {}) {
+    options.headers = options.headers || {};
+    options.headers["Authorization"] = `Bearer ${authToken}`;
+
+    const res = await fetch(url, options);
+
+    if (res.status === 401) {
+      logout();
+      throw new Error("Authentication expired");
+    }
+
+    return res;
   }
 
   // Login form handling
-  document.getElementById("loginBtn").addEventListener("click", () => {
+  document.getElementById("loginBtn").addEventListener("click", async () => {
     const username = document.getElementById("username").value;
     const password = document.getElementById("password").value;
     const errorEl = document.getElementById("loginError");
 
-    if (login(username, password)) {
+    errorEl.textContent = "";
+
+    const result = await login(username, password);
+
+    if (result.success) {
       showDashboard();
       initializeApp();
     } else {
-      errorEl.textContent = "Please enter both username and password";
+      errorEl.textContent = result.message || "Login failed";
     }
   });
 
@@ -82,6 +152,25 @@
       // Update page visibility
       pages.forEach((page) => page.classList.remove("active"));
       document.getElementById(pageId + "Page").classList.add("active");
+
+      // Load data for specific pages
+      if (pageId === "users") {
+        // Block users page for peers
+        if (currentUser && currentUser.role !== "admin") {
+          alert(
+            "Access Denied: Only administrators can access user management."
+          );
+          // Switch back to home page
+          navItems.forEach((nav) => nav.classList.remove("active"));
+          navItems[0].classList.add("active");
+          pages.forEach((page) => page.classList.remove("active"));
+          document.getElementById("homePage").classList.add("active");
+          return;
+        }
+        loadUsers();
+      } else if (pageId === "config") {
+        loadConfig();
+      }
     });
   });
 
@@ -180,8 +269,10 @@
       <div class="msg">${escapeHtml(msg)}</div>
     `;
     table.appendChild(div);
-    if (autoScroll.checked) {
-      div.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (autoScroll && autoScroll.checked) {
+      setTimeout(() => {
+        table.scrollTop = table.scrollHeight;
+      }, 0);
     }
   }
 
@@ -237,7 +328,7 @@
   // ============ BLOCKED QUERIES ============
   async function refreshBlocked() {
     try {
-      const res = await fetch("/api/blocked");
+      const res = await fetchAPI("/api/blocked");
       const { items } = await res.json();
 
       stats.blockedQueries = items.length;
@@ -264,6 +355,115 @@
         div.className = "blocked-item";
         const ts = new Date(it.ts).toLocaleTimeString();
 
+        // Get vote status for this query
+        let voteStatusHtml = "";
+        let actionsHtml = "";
+
+        if (it.requiresPeerApproval) {
+          // Fetch vote status from backend
+          try {
+            const voteRes = await fetchAPI(`/api/vote-status/${it.id}`);
+            const voteStatus = await voteRes.json();
+
+            const approvalCount = voteStatus.approvalCount || 0;
+            const rejectionCount = voteStatus.rejectionCount || 0;
+            const approvers = voteStatus.approvals || [];
+            const rejectors = voteStatus.rejections || [];
+
+            // Show voting progress
+            voteStatusHtml = `
+              <div class="vote-status" style="margin: 0.5rem 0; padding: 0.5rem; background: var(--bg-secondary); border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                  <span style="color: var(--success);">✓ Approvals: ${approvalCount}</span>
+                  <span style="color: var(--danger);">✗ Rejections: ${rejectionCount}</span>
+                </div>
+                ${
+                  approvers.length > 0
+                    ? `<div style="font-size: 0.75rem; color: var(--text-muted);">Approved by: ${approvers.join(
+                        ", "
+                      )}</div>`
+                    : ""
+                }
+                ${
+                  rejectors.length > 0
+                    ? `<div style="font-size: 0.75rem; color: var(--text-muted);">Rejected by: ${rejectors.join(
+                        ", "
+                      )}</div>`
+                    : ""
+                }
+              </div>
+            `;
+
+            // For peers, show vote buttons
+            if (currentUser.role === "peer") {
+              const userVote = approvers.includes(currentUser.username)
+                ? "approve"
+                : rejectors.includes(currentUser.username)
+                ? "reject"
+                : null;
+
+              actionsHtml = `
+                <div class="blocked-actions">
+                  <button class="btn-vote-approve ${
+                    userVote === "approve" ? "voted" : ""
+                  }" data-id="${it.id}" ${userVote ? "disabled" : ""}>
+                    <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    ${userVote === "approve" ? "Voted Approve" : "Vote Approve"}
+                  </button>
+                  <button class="btn-vote-reject ${
+                    userVote === "reject" ? "voted" : ""
+                  }" data-id="${it.id}" ${userVote ? "disabled" : ""}>
+                    <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    ${userVote === "reject" ? "Voted Reject" : "Vote Reject"}
+                  </button>
+                </div>
+              `;
+            } else {
+              // Admin can still directly approve/reject
+              actionsHtml = `
+                <div class="blocked-actions">
+                  <button class="btn-approve" data-id="${it.id}">
+                    <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Approve (Override)
+                  </button>
+                  <button class="btn-deny" data-id="${it.id}">
+                    <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Deny (Override)
+                  </button>
+                </div>
+              `;
+            }
+          } catch (voteErr) {
+            console.error("Failed to fetch vote status:", voteErr);
+          }
+        } else {
+          // Standard approve/reject buttons for non-peer approval queries
+          actionsHtml = `
+            <div class="blocked-actions">
+              <button class="btn-approve" data-id="${it.id}">
+                <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Approve
+              </button>
+              <button class="btn-deny" data-id="${it.id}">
+                <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Deny
+              </button>
+            </div>
+          `;
+        }
+
         div.innerHTML = `
           <div class="blocked-header">
             <div class="blocked-meta">
@@ -274,31 +474,44 @@
               <span>${it.connId}</span>
               <span class="dot"></span>
               <span>${it.type}</span>
+              ${
+                it.requiresPeerApproval
+                  ? '<span class="dot"></span><span style="color: var(--info);">🤝 Peer Approval</span>'
+                  : ""
+              }
             </div>
           </div>
           <div class="blocked-sql">${escapeHtml(it.preview)}</div>
-          <div class="blocked-actions">
-            <button class="btn-approve" data-id="${it.id}">
-              <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              Approve
-            </button>
-            <button class="btn-deny" data-id="${it.id}">
-              <svg style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              Deny
-            </button>
-          </div>
+          ${voteStatusHtml}
+          ${actionsHtml}
         `;
 
-        div
-          .querySelector(".btn-approve")
-          .addEventListener("click", () => handleDecision(it.id, "approve"));
-        div
-          .querySelector(".btn-deny")
-          .addEventListener("click", () => handleDecision(it.id, "reject"));
+        // Attach event listeners
+        const approveBtn = div.querySelector(".btn-approve");
+        const denyBtn = div.querySelector(".btn-deny");
+        const voteApproveBtn = div.querySelector(".btn-vote-approve");
+        const voteRejectBtn = div.querySelector(".btn-vote-reject");
+
+        if (approveBtn) {
+          approveBtn.addEventListener("click", () =>
+            handleDecision(it.id, "approve")
+          );
+        }
+        if (denyBtn) {
+          denyBtn.addEventListener("click", () =>
+            handleDecision(it.id, "reject")
+          );
+        }
+        if (voteApproveBtn) {
+          voteApproveBtn.addEventListener("click", () =>
+            handleVote(it.id, "approve")
+          );
+        }
+        if (voteRejectBtn) {
+          voteRejectBtn.addEventListener("click", () =>
+            handleVote(it.id, "reject")
+          );
+        }
 
         root.appendChild(div);
       }
@@ -309,15 +522,305 @@
 
   async function handleDecision(id, action) {
     try {
-      const authorityName = localStorage.getItem(AUTHORITY_KEY) || "Admin";
-      await fetch(`/api/${action}`, {
+      await fetchAPI(`/api/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, authority: authorityName }),
+        body: JSON.stringify({ id }),
       });
     } catch (e) {
       console.error("Action failed", e);
     }
+  }
+
+  async function handleVote(id, vote) {
+    try {
+      const res = await fetchAPI("/api/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, vote }),
+      });
+
+      const result = await res.json();
+
+      if (result.success) {
+        if (result.autoResolved) {
+          // Query was automatically approved or rejected
+          console.log(`Query #${id} was automatically ${result.action}`);
+        } else {
+          // Just update the UI to show the vote
+          console.log(`Vote recorded: ${vote} for query #${id}`);
+          // Refresh to show updated counts
+          await refreshBlocked();
+        }
+      } else {
+        console.error("Vote failed:", result.error);
+        alert(result.error || "Failed to record vote");
+      }
+    } catch (e) {
+      console.error("Vote failed", e);
+      alert("Failed to record vote");
+    }
+  }
+
+  // ============ CONFIGURATION ============
+
+  async function loadConfig() {
+    if (!currentUser || currentUser.role !== "admin") {
+      document.getElementById("saveConfigBtn").disabled = true;
+      return;
+    }
+
+    try {
+      const res = await fetchAPI("/api/config");
+      const config = await res.json();
+
+      document.getElementById("configProxyPort").value =
+        config.proxy_port || "5432";
+      document.getElementById("configTargetHost").value =
+        config.target_host || "localhost";
+      document.getElementById("configTargetPort").value =
+        config.target_port || "5433";
+      document.getElementById("configAdminPort").value =
+        config.admin_port || "3000";
+      document.getElementById("configBlockByDefault").value =
+        config.block_by_default === "true" ? "yes" : "no";
+      document.getElementById("configPeerApprovalEnabled").value =
+        config.peer_approval_enabled || "false";
+      document.getElementById("configMinVotes").value =
+        config.peer_approval_min_votes || "1";
+    } catch (e) {
+      console.error("Failed to load config:", e);
+    }
+  }
+
+  async function saveConfig() {
+    const proxyPort = document.getElementById("configProxyPort").value;
+    const targetHost = document.getElementById("configTargetHost").value;
+    const targetPort = document.getElementById("configTargetPort").value;
+    const adminPort = document.getElementById("configAdminPort").value;
+    const blockByDefault = document.getElementById(
+      "configBlockByDefault"
+    ).value;
+    const peerApprovalEnabled = document.getElementById(
+      "configPeerApprovalEnabled"
+    ).value;
+    const minVotes = document.getElementById("configMinVotes").value;
+    const errorEl = document.getElementById("configFormError");
+
+    errorEl.textContent = "";
+
+    if (!proxyPort || !targetHost || !targetPort || !adminPort) {
+      errorEl.textContent = "All fields are required";
+      return;
+    }
+
+    try {
+      const res = await fetchAPI("/api/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proxy_port: proxyPort,
+          target_host: targetHost,
+          target_port: targetPort,
+          admin_port: adminPort,
+          block_by_default: blockByDefault === "yes" ? "true" : "false",
+          peer_approval_enabled: peerApprovalEnabled,
+          peer_approval_min_votes: minVotes,
+        }),
+      });
+
+      if (res.ok) {
+        errorEl.style.color = "var(--success)";
+        errorEl.textContent =
+          "✅ Configuration saved! Restart the proxy for changes to take effect.";
+        setTimeout(() => {
+          errorEl.textContent = "";
+          errorEl.style.color = "";
+        }, 5000);
+      } else {
+        const error = await res.json();
+        errorEl.textContent = error.error || "Failed to save configuration";
+      }
+    } catch (e) {
+      errorEl.textContent = e.message;
+    }
+  }
+
+  // Config form handlers
+  document
+    .getElementById("saveConfigBtn")
+    ?.addEventListener("click", saveConfig);
+
+  // ============ USER MANAGEMENT ============
+  async function loadUsers() {
+    if (!currentUser || currentUser.role !== "admin") return;
+
+    try {
+      const res = await fetchAPI("/api/users");
+      const { users } = await res.json();
+
+      const tbody = document.getElementById("usersTableBody");
+      tbody.innerHTML = "";
+
+      if (users.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+              No users found
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      for (const user of users) {
+        const tr = document.createElement("tr");
+        const createdDate = new Date(user.created_at).toLocaleDateString();
+        const lastLogin = user.last_login
+          ? new Date(user.last_login).toLocaleString()
+          : "Never";
+
+        const roleClass = user.role === "admin" ? "role-admin" : "role-peer";
+        const canDelete = user.id !== currentUser.id;
+
+        tr.innerHTML = `
+          <td>${escapeHtml(user.username)}</td>
+          <td><span class="role-badge ${roleClass}">${user.role}</span></td>
+          <td>${createdDate}</td>
+          <td>${lastLogin}</td>
+          <td>
+            ${
+              canDelete
+                ? `<button class="btn-delete" data-id="${user.id}">Delete</button>`
+                : '<span style="color: var(--text-muted);">Current User</span>'
+            }
+          </td>
+        `;
+
+        if (canDelete) {
+          tr.querySelector(".btn-delete").addEventListener("click", () =>
+            deleteUser(user.id)
+          );
+        }
+
+        tbody.appendChild(tr);
+      }
+    } catch (e) {
+      console.error("Failed to load users:", e);
+    }
+  }
+
+  async function createUser(username, password, role) {
+    try {
+      const res = await fetchAPI("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, role }),
+      });
+
+      if (res.ok) {
+        return { success: true };
+      } else {
+        const error = await res.json();
+        return {
+          success: false,
+          message: error.error || "Failed to create user",
+        };
+      }
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  }
+
+  async function deleteUser(userId) {
+    if (!confirm("Are you sure you want to delete this user?")) return;
+
+    try {
+      await fetchAPI(`/api/users/${userId}`, { method: "DELETE" });
+      loadUsers();
+    } catch (e) {
+      console.error("Failed to delete user:", e);
+      alert("Failed to delete user");
+    }
+  }
+
+  // User form handlers
+  document.getElementById("addUserBtn")?.addEventListener("click", () => {
+    document.getElementById("addUserForm").style.display = "block";
+    document.getElementById("newUsername").value = "";
+    document.getElementById("newPassword").value = "";
+    document.getElementById("newRole").value = "peer";
+    document.getElementById("userFormError").textContent = "";
+  });
+
+  document.getElementById("cancelUserBtn")?.addEventListener("click", () => {
+    document.getElementById("addUserForm").style.display = "none";
+  });
+
+  document
+    .getElementById("saveUserBtn")
+    ?.addEventListener("click", async () => {
+      const username = document.getElementById("newUsername").value.trim();
+      const password = document.getElementById("newPassword").value;
+      const role = document.getElementById("newRole").value;
+      const errorEl = document.getElementById("userFormError");
+
+      errorEl.textContent = "";
+
+      if (!username || !password) {
+        errorEl.textContent = "Username and password are required";
+        return;
+      }
+
+      if (password.length < 6) {
+        errorEl.textContent = "Password must be at least 6 characters";
+        return;
+      }
+
+      const result = await createUser(username, password, role);
+
+      if (result.success) {
+        document.getElementById("addUserForm").style.display = "none";
+        loadUsers();
+      } else {
+        errorEl.textContent = result.message;
+      }
+    });
+
+  // ============ EXPORT LOGS ============
+  function exportLogs() {
+    const filteredRows = rows.filter(rowMatchesFilters);
+
+    if (filteredRows.length === 0) {
+      alert("No logs to export");
+      return;
+    }
+
+    let csv = "Timestamp,Direction,Connection,Message\n";
+
+    filteredRows.forEach((evt) => {
+      const ts = new Date(evt.ts || Date.now()).toISOString();
+      const dir = evt.level || evt.direction || "conn";
+      const conn = evt.conn || "";
+      const msg = (
+        evt.text ||
+        evt.message ||
+        JSON.stringify(evt.data || evt)
+      ).replace(/"/g, '""');
+      csv += `"${ts}","${dir}","${conn}","${msg}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `interceptor-logs-${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // ============ EVENT SOURCE ============
@@ -328,6 +831,12 @@
       rows.length = 0;
       rerenderAll();
     });
+
+    // Add export button listener
+    const exportBtn = document.getElementById("exportBtn");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", exportLogs);
+    }
 
     const es = new EventSource("/events");
 
@@ -390,6 +899,6 @@
 
   // Initialize if already authenticated
   if (isAuthenticated()) {
-    initializeApp();
+    showDashboard();
   }
 })();

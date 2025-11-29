@@ -1,11 +1,16 @@
 {
   "name": "interceptor-v1",
-  "version": "1.1.0",
-  "description": "Optimized PostgreSQL wire-protocol proxy with query blocking and admin UI",
+  "version": "1.2.0",
+  "description": "PostgreSQL wire-protocol proxy with authentication, persistence, and real-time query monitoring",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "start:clean": "npm run kill && node src/index.js",
+    "setup": "node src/setup.js",
+    "check-config": "node check-config.js",
+    "predev": "./kill-ports.sh",
     "dev": "node --inspect src/index.js",
+    "kill": "node src/killPorts.js",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
@@ -23,5 +28,10 @@
   "type": "commonjs",
   "engines": {
     "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.4.6",
+    "jsonwebtoken": "^9.0.2"
   }
 }
