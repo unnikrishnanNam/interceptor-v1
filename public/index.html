@@ -461,6 +461,32 @@
                 </select>
               </div>
               <div class="config-item">
+                <label>Critical Keywords (comma-separated)</label>
+                <input
+                  type="text"
+                  id="configCriticalKeywords"
+                  class="config-input"
+                  placeholder="DROP, ALTER, TRUNCATE, DELETE, GRANT, REVOKE, CREATE EXTENSION"
+                />
+                <small style="color: var(--text-muted); font-size: 0.75rem"
+                  >Queries containing these keywords will be blocked for
+                  approval</small
+                >
+              </div>
+              <div class="config-item">
+                <label>Allowed Keywords (comma-separated)</label>
+                <input
+                  type="text"
+                  id="configAllowedKeywords"
+                  class="config-input"
+                  placeholder="SELECT, INSERT, UPDATE, CREATE TABLE"
+                />
+                <small style="color: var(--text-muted); font-size: 0.75rem"
+                  >Queries containing these keywords will be forwarded
+                  directly</small
+                >
+              </div>
+              <div class="config-item">
                 <label>Enable Peer Approval System</label>
                 <select id="configPeerApprovalEnabled" class="config-input">
                   <option value="false">No (Admin only)</option>

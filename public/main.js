@@ -753,6 +753,11 @@
         config.peer_approval_enabled || "false";
       document.getElementById("configMinVotes").value =
         config.peer_approval_min_votes || "1";
+      document.getElementById("configCriticalKeywords").value =
+        config.critical_keywords ||
+        "DROP, ALTER, TRUNCATE, DELETE, GRANT, REVOKE, CREATE EXTENSION";
+      document.getElementById("configAllowedKeywords").value =
+        config.allowed_keywords || "SELECT, INSERT, UPDATE, CREATE TABLE";
     } catch (e) {
       console.error("Failed to load config:", e);
     }
@@ -791,6 +796,10 @@
           block_by_default: blockByDefault === "yes" ? "true" : "false",
           peer_approval_enabled: peerApprovalEnabled,
           peer_approval_min_votes: minVotes,
+          critical_keywords: document.getElementById("configCriticalKeywords")
+            .value,
+          allowed_keywords: document.getElementById("configAllowedKeywords")
+            .value,
         }),
       });
 

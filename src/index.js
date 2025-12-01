@@ -33,6 +33,36 @@ async function startProxy() {
     config.get("admin_port") || process.env.ADMIN_PORT || "3000"
   );
   const BLOCK_BY_DEFAULT = config.get("block_by_default") === "yes";
+  // Critical command classification config (comma-separated keywords)
+  const DEFAULT_CRITICAL = [
+    "DROP",
+    "ALTER",
+    "TRUNCATE",
+    "DELETE",
+    "GRANT",
+    "REVOKE",
+    "CREATE EXTENSION",
+  ];
+  const DEFAULT_ALLOWED = ["SELECT", "INSERT", "UPDATE", "CREATE TABLE"];
+
+  function getConfigList(key, fallbackArr) {
+    const raw = config.get(key);
+    if (!raw) return fallbackArr;
+    return String(raw)
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  function classifySql(sql) {
+    const criticalList = getConfigList("critical_keywords", DEFAULT_CRITICAL);
+    const allowedList = getConfigList("allowed_keywords", DEFAULT_ALLOWED);
+    const upper = sql.toUpperCase();
+    // Priority: explicit critical > explicit allowed > default policy
+    if (criticalList.some((kw) => upper.includes(kw))) return "critical";
+    if (allowedList.some((kw) => upper.includes(kw))) return "allowed";
+    return BLOCK_BY_DEFAULT ? "critical" : "allowed";
+  }
 
   // Ensure required ports are free
   const portCheckResult = await ensurePortsFree([ADMIN_PORT, PROXY_PORT], {
@@ -145,7 +175,8 @@ async function startProxy() {
             // Simple query: check if blocking is enabled
             const sql = m.payload.toString("utf8", 0, m.payload.length - 1);
             metrics.trackQuery("simple");
-            const shouldBlock = config.get("block_by_default") === "true";
+            const classification = classifySql(sql);
+            const shouldBlock = classification === "critical";
 
             debugLog(
               connId,
@@ -168,7 +199,7 @@ async function startProxy() {
               emitLogEvent({
                 kind: "blocked",
                 conn: connId,
-                text: `Blocked Q`,
+                text: `Blocked Q (critical)`,
                 data: { sql },
               });
               continue;
@@ -200,8 +231,9 @@ async function startProxy() {
                 batchPreview || `Extended batch (${batchBuffers.length} msg)`;
 
               metrics.trackQuery("extended");
-              // Check if blocking is enabled
-              const shouldBlock = config.get("block_by_default") === "true";
+              // Classify based on preview
+              const classification = classifySql(preview);
+              const shouldBlock = classification === "critical";
 
               debugLog(
                 connId,
@@ -224,7 +256,7 @@ async function startProxy() {
                 emitLogEvent({
                   kind: "blocked",
                   conn: connId,
-                  text: `Blocked Extended`,
+                  text: `Blocked Extended (critical)`,
                   data: { preview },
                 });
               } else {

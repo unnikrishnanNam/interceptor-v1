@@ -41,6 +41,17 @@ A high-performance PostgreSQL wire-protocol proxy that intercepts and logs messa
 - **Persistent Config**: All settings stored in database
 - **Runtime Updates**: Change configuration through web UI (requires restart)
 
+### Critical Command Detection
+
+- Classifies queries using configurable keyword lists
+- Defaults:
+  - Critical: `DROP, ALTER, TRUNCATE, DELETE, GRANT, REVOKE, CREATE EXTENSION`
+  - Allowed: `SELECT, INSERT, UPDATE, CREATE TABLE`
+- Behavior:
+  - Critical → blocked and requires approval
+  - Allowed → forwarded directly
+  - Others → follow block-by-default policy
+
 ## How SSL/TLS affects logging
 
 - Clients typically begin with an SSLRequest. The server replies with a single byte: `S` (accept TLS) or `N` (deny).
