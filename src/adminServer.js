@@ -5,6 +5,7 @@ const logBus = require("./eventBus");
 const blocked = require("./blockedStore");
 const auth = require("./auth");
 const { users, audit, config } = require("./db");
+const metrics = require("./metrics");
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB limit for request bodies
 
@@ -175,6 +176,14 @@ function createAdminServer({ port = 8080, staticDir }) {
       console.log(`[Admin] GET /api/blocked -> ${items.length} items`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ items }));
+      return;
+    }
+
+    // REST: get metrics
+    if (req.method === "GET" && req.url === "/api/metrics") {
+      const metricsData = metrics.getMetrics();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(metricsData));
       return;
     }
 

@@ -11,6 +11,7 @@ const blockedStore = require("./blockedStore");
 const { config } = require("./db");
 const { setup } = require("./setup");
 const { ensurePortsFree } = require("./portCleanup");
+const metrics = require("./metrics");
 
 // Check if setup is complete
 async function startProxy() {
@@ -87,6 +88,7 @@ async function startProxy() {
       conn: connId,
       text: `Client connected → ${PG_HOST}:${PG_PORT}`,
     });
+    metrics.trackConnection(connId);
 
     const serverSocket = net.createConnection(
       { host: PG_HOST, port: PG_PORT },
@@ -110,6 +112,7 @@ async function startProxy() {
     let passthroughTLS = false; // set to true when server responds 'S' to SSLRequest
 
     clientSocket.on("data", (chunk) => {
+      metrics.trackBytesReceived(chunk.length);
       if (passthroughTLS) {
         // Once TLS is negotiated, we cannot parse; just forward bytes
         serverSocket.write(chunk);
@@ -141,6 +144,7 @@ async function startProxy() {
           if (t === "Q") {
             // Simple query: check if blocking is enabled
             const sql = m.payload.toString("utf8", 0, m.payload.length - 1);
+            metrics.trackQuery("simple");
             const shouldBlock = config.get("block_by_default") === "true";
 
             debugLog(
@@ -152,6 +156,7 @@ async function startProxy() {
 
             if (shouldBlock) {
               // Block and store the query
+              metrics.trackBlocked();
               blockedStore.add({
                 connId,
                 type: "simple",
@@ -194,6 +199,7 @@ async function startProxy() {
               const preview =
                 batchPreview || `Extended batch (${batchBuffers.length} msg)`;
 
+              metrics.trackQuery("extended");
               // Check if blocking is enabled
               const shouldBlock = config.get("block_by_default") === "true";
 
@@ -206,6 +212,7 @@ async function startProxy() {
 
               if (shouldBlock) {
                 // Block and store the batch
+                metrics.trackBlocked();
                 blockedStore.add({
                   connId,
                   type: "extended",
@@ -249,6 +256,7 @@ async function startProxy() {
     });
 
     serverSocket.on("data", (chunk) => {
+      metrics.trackBytesSent(chunk.length);
       if (passthroughTLS) {
         clientSocket.write(chunk);
         return;
@@ -279,6 +287,7 @@ async function startProxy() {
         text: `Connection closed (${who})`,
       });
 
+      metrics.removeConnection(connId);
       // Clean up any blocked queries for this connection
       blockedStore.cleanupConnection(connId);
 
@@ -288,12 +297,14 @@ async function startProxy() {
 
     clientSocket.on("end", () => onCloseBoth("client end"));
     clientSocket.on("error", (err) => {
+      metrics.trackError();
       debugLog(connId, `clientSocket error: ${err.message}`);
       onCloseBoth("client error");
     });
 
     serverSocket.on("end", () => onCloseBoth("server end"));
     serverSocket.on("error", (err) => {
+      metrics.trackError();
       debugLog(connId, `serverSocket error: ${err.message}`);
       onCloseBoth("server error");
     });

@@ -421,6 +421,26 @@ body {
   color: var(--accent-red);
 }
 
+.stat-icon.purple {
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+}
+
+.stat-icon.cyan {
+  background: rgba(6, 182, 212, 0.1);
+  color: #06b6d4;
+}
+
+.stat-icon.yellow {
+  background: rgba(234, 179, 8, 0.1);
+  color: #eab308;
+}
+
+.stat-icon.pink {
+  background: rgba(236, 72, 153, 0.1);
+  color: #ec4899;
+}
+
 .stat-content {
   flex: 1;
 }
@@ -477,6 +497,39 @@ body {
 .activity-item .time {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ============ METRICS DETAIL ============ */
+.metrics-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 13px;
+}
+
+.metrics-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.metrics-row:last-child {
+  border-bottom: none;
+}
+
+.metrics-label {
+  color: var(--text-secondary);
+}
+
+.metrics-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-family: "Courier New", monospace;
+}
+
+.metrics-value.highlight {
+  color: var(--accent-blue);
 }
 
 /* ============ TABLE CARD ============ */

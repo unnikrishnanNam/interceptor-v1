@@ -225,6 +225,120 @@
     }
   }
 
+  // ============ METRICS ============
+  async function refreshMetrics() {
+    try {
+      const res = await fetchAPI("/api/metrics");
+      const metrics = await res.json();
+
+      // Update uptime
+      document.getElementById("uptime").textContent = metrics.uptime.formatted;
+
+      // Update memory
+      const memUsedMB = (metrics.memory.process.heapUsed / 1024 / 1024).toFixed(
+        1
+      );
+      document.getElementById("memoryUsed").textContent = `${memUsedMB} MB`;
+
+      // Update blocked queries memory
+      const blockedKB = (metrics.memory.blockedQueries.total / 1024).toFixed(1);
+      document.getElementById("blockedMemory").textContent = `${blockedKB} KB`;
+
+      // Update throughput
+      document.getElementById(
+        "throughput"
+      ).textContent = `${metrics.queries.throughput.queriesPerSecond}/s`;
+
+      // Update memory details
+      const memDetails = document.getElementById("memoryDetails");
+      memDetails.innerHTML = `
+        <div class="metrics-row">
+          <span class="metrics-label">Heap Used</span>
+          <span class="metrics-value">${(
+            metrics.memory.process.heapUsed /
+            1024 /
+            1024
+          ).toFixed(2)} MB</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Heap Total</span>
+          <span class="metrics-value">${(
+            metrics.memory.process.heapTotal /
+            1024 /
+            1024
+          ).toFixed(2)} MB</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">RSS</span>
+          <span class="metrics-value">${(
+            metrics.memory.process.rss /
+            1024 /
+            1024
+          ).toFixed(2)} MB</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">External</span>
+          <span class="metrics-value">${(
+            metrics.memory.process.external /
+            1024 /
+            1024
+          ).toFixed(2)} MB</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Blocked Queries</span>
+          <span class="metrics-value highlight">${
+            metrics.memory.blockedQueries.count
+          } items (${(metrics.memory.blockedQueries.total / 1024).toFixed(
+        1
+      )} KB)</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Avg per Query</span>
+          <span class="metrics-value">${(
+            metrics.memory.blockedQueries.average / 1024
+          ).toFixed(2)} KB</span>
+        </div>
+      `;
+
+      // Update network details
+      const netDetails = document.getElementById("networkDetails");
+      netDetails.innerHTML = `
+        <div class="metrics-row">
+          <span class="metrics-label">Bytes Received</span>
+          <span class="metrics-value">${
+            metrics.throughput.formatted.bytesReceived
+          }</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Bytes Sent</span>
+          <span class="metrics-value">${
+            metrics.throughput.formatted.bytesSent
+          }</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Messages Received</span>
+          <span class="metrics-value">${metrics.throughput.messagesReceived.toLocaleString()}</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Messages Sent</span>
+          <span class="metrics-value">${metrics.throughput.messagesSent.toLocaleString()}</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Queries per Second</span>
+          <span class="metrics-value highlight">${
+            metrics.queries.throughput.queriesPerSecond
+          }</span>
+        </div>
+        <div class="metrics-row">
+          <span class="metrics-label">Peak Connections</span>
+          <span class="metrics-value">${metrics.connections.peak}</span>
+        </div>
+      `;
+    } catch (err) {
+      console.error("Failed to fetch metrics:", err);
+    }
+  }
+
   // ============ LOG TABLE ============
   const table = document.getElementById("logTable");
   const autoScroll = document.getElementById("autoScroll");
@@ -886,15 +1000,14 @@
     rerenderAll();
     refreshBlocked();
     updateStats();
+    refreshMetrics(); // Initial metrics fetch
 
-    // Update uptime
-    const startTime = Date.now();
+    // Refresh metrics every 5 seconds
     setInterval(() => {
-      const uptime = Date.now() - startTime;
-      const hours = Math.floor(uptime / 3600000);
-      const minutes = Math.floor((uptime % 3600000) / 60000);
-      document.getElementById("uptime").textContent = `${hours}h ${minutes}m`;
-    }, 60000);
+      refreshMetrics();
+    }, 5000);
+
+    // Update uptime (removed as metrics now handles it)
   }
 
   // Initialize if already authenticated
