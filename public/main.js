@@ -58,6 +58,9 @@
     localStorage.removeItem(USER_KEY);
     authToken = null;
     currentUser = null;
+    // Clear any user-specific UI state
+    const blockedRoot = document.getElementById("blocked");
+    if (blockedRoot) blockedRoot.innerHTML = "";
     showLoginScreen();
   }
 
@@ -169,6 +172,9 @@
         loadUsers();
       } else if (pageId === "config") {
         loadConfig();
+      } else if (pageId === "blocked") {
+        // Ensure fresh render with current user context
+        refreshBlocked();
       }
     });
   });
