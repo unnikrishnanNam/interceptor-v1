@@ -120,7 +120,6 @@
 
     if (result.success) {
       showDashboard();
-      initializeApp();
     } else {
       errorEl.textContent = result.message || "Login failed";
     }
@@ -195,6 +194,9 @@
     errors: 0,
   };
 
+  // Guard against concurrent blocked list renders
+  let blockedRenderSeq = 0;
+
   function updateStats() {
     document.getElementById("activeConnections").textContent =
       stats.connections.size;
@@ -231,8 +233,10 @@
       const res = await fetchAPI("/api/metrics");
       const metrics = await res.json();
 
-      // Update uptime
-      document.getElementById("uptime").textContent = metrics.uptime.formatted;
+      // Update uptime (both Dashboard and Config pages may have an element)
+      document.querySelectorAll("#uptime").forEach((el) => {
+        el.textContent = metrics.uptime.formatted;
+      });
 
       // Update memory
       const memUsedMB = (metrics.memory.process.heapUsed / 1024 / 1024).toFixed(
@@ -248,6 +252,25 @@
       document.getElementById(
         "throughput"
       ).textContent = `${metrics.queries.throughput.queriesPerSecond}/s`;
+
+      // Update top stat cards from server metrics (persistence across reload)
+      const active = metrics.connections.active;
+      const totalQ = metrics.queries.total;
+      const pendingBlocked = metrics.queries.pending;
+      const errors = metrics.errors;
+      const activeEl = document.getElementById("activeConnections");
+      const totalEl = document.getElementById("totalQueries");
+      const blockedElStat = document.getElementById("statBlockedQueries");
+      const errorEl = document.getElementById("errorCount");
+      if (activeEl) activeEl.textContent = active;
+      if (totalEl) totalEl.textContent = totalQ;
+      if (blockedElStat) blockedElStat.textContent = pendingBlocked;
+      if (errorEl) errorEl.textContent = errors;
+      const badge = document.getElementById("blockedCount");
+      if (badge) {
+        badge.textContent = pendingBlocked;
+        badge.style.display = pendingBlocked > 0 ? "block" : "none";
+      }
 
       // Update memory details
       const memDetails = document.getElementById("memoryDetails");
@@ -444,27 +467,38 @@
     try {
       const res = await fetchAPI("/api/blocked");
       const { items } = await res.json();
+      // Dedupe by id for safety
+      const seen = new Set();
+      const uniqueItems = [];
+      for (const it of items || []) {
+        if (it && !seen.has(it.id)) {
+          seen.add(it.id);
+          uniqueItems.push(it);
+        }
+      }
 
-      stats.blockedQueries = items.length;
+      stats.blockedQueries = uniqueItems.length;
       updateStats();
 
       // Update badge
       const badge = document.getElementById("blockedCount");
       if (badge) {
-        badge.textContent = items.length;
-        badge.style.display = items.length > 0 ? "block" : "none";
+        badge.textContent = uniqueItems.length;
+        badge.style.display = uniqueItems.length > 0 ? "block" : "none";
       }
 
       const root = blockedEl;
-      root.innerHTML = "";
+      const seq = ++blockedRenderSeq;
+      const fragment = document.createDocumentFragment();
 
-      if (items.length === 0) {
+      if (uniqueItems.length === 0) {
+        if (seq !== blockedRenderSeq) return;
         root.innerHTML =
           '<div style="text-align: center; padding: 3rem; color: var(--text-muted);">No blocked queries</div>';
         return;
       }
 
-      for (const it of items) {
+      for (const it of uniqueItems) {
         const div = document.createElement("div");
         div.className = "blocked-item";
         const ts = new Date(it.ts).toLocaleTimeString();
@@ -627,8 +661,11 @@
           );
         }
 
-        root.appendChild(div);
+        fragment.appendChild(div);
       }
+      if (seq !== blockedRenderSeq) return;
+      root.innerHTML = "";
+      root.appendChild(fragment);
     } catch (e) {
       console.error("Failed to refresh blocked queries:", e);
     }
@@ -636,11 +673,19 @@
 
   async function handleDecision(id, action) {
     try {
-      await fetchAPI(`/api/${action}`, {
+      const res = await fetchAPI(`/api/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
+      if (res.ok) {
+        // Optimistically refresh list to reflect change immediately
+        await refreshBlocked();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error("Action failed", err);
+        alert(err.error || `Failed to ${action} query`);
+      }
     } catch (e) {
       console.error("Action failed", e);
     }
@@ -679,9 +724,9 @@
   // ============ CONFIGURATION ============
 
   async function loadConfig() {
-    if (!currentUser || currentUser.role !== "admin") {
-      document.getElementById("saveConfigBtn").disabled = true;
-      return;
+    const saveBtn = document.getElementById("saveConfigBtn");
+    if (saveBtn && (!currentUser || currentUser.role !== "admin")) {
+      saveBtn.disabled = true;
     }
 
     try {
@@ -939,6 +984,7 @@
 
   // ============ EVENT SOURCE ============
   function initializeApp() {
+    if (window.__interceptor_es_initialized) return; // guard against double init
     levelFilter.addEventListener("change", rerenderAll);
     search.addEventListener("input", debounce(rerenderAll, 300));
     clearBtn.addEventListener("click", () => {
@@ -953,6 +999,7 @@
     }
 
     const es = new EventSource("/events");
+    window.__interceptor_es_initialized = true;
 
     es.onmessage = (e) => {
       try {
@@ -985,7 +1032,7 @@
           evt.kind === "approved" ||
           evt.kind === "rejected"
         ) {
-          refreshBlocked();
+          refreshBlockedDebounced();
         }
       } catch (err) {
         console.error("Failed to parse event:", err);
@@ -1009,6 +1056,9 @@
 
     // Update uptime (removed as metrics now handles it)
   }
+
+  // Debounced wrapper to prevent overlapping refreshes on rapid events
+  const refreshBlockedDebounced = debounce(refreshBlocked, 150);
 
   // Initialize if already authenticated
   if (isAuthenticated()) {

@@ -105,6 +105,8 @@ function approve(id, approvedBy = "Unknown") {
     for (const buf of item.messages) {
       item.forward(buf);
     }
+    // Lazy load metrics to avoid circular dependency
+    const metrics = require("./metrics");
     metrics.trackApproved();
     logBus.emit("log", {
       kind: "approved",
@@ -112,9 +114,6 @@ function approve(id, approvedBy = "Unknown") {
       conn: item.connId,
       text: `Approved: ${item.preview}`,
     });
-    // Lazy load metrics to avoid circular dependency
-    const metrics = require("./metrics");
-    metrics.trackApproved();
     return true;
   } catch (e) {
     logBus.emit("log", {
@@ -160,6 +159,8 @@ function reject(id, authorityName = "Unknown") {
       );
     }
 
+    // Lazy load metrics to avoid circular dependency
+    const metrics = require("./metrics");
     metrics.trackRejected();
     logBus.emit("log", {
       kind: "rejected",
@@ -167,9 +168,6 @@ function reject(id, authorityName = "Unknown") {
       conn: item.connId,
       text: `Rejected by ${authorityName}: ${item.preview}`,
     });
-    // Lazy load metrics to avoid circular dependency
-    const metrics = require("./metrics");
-    metrics.trackRejected();
     return true;
   } catch (e) {
     console.error(e);

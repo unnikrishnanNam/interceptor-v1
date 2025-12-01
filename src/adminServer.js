@@ -147,6 +147,17 @@ function createAdminServer({ port = 8080, staticDir }) {
       res.flushHeaders && res.flushHeaders();
       res.write(`retry: 2000\n\n`);
 
+      // Send recent backlog on connect
+      try {
+        const recent = logBus.getRecent(200);
+        for (const evt of recent) {
+          if (res.writableEnded) break;
+          res.write(`data: ${JSON.stringify(evt)}\n\n`);
+        }
+      } catch (e) {
+        // ignore backlog errors; continue with live stream
+      }
+
       const onEvent = (evt) => {
         if (res.writableEnded) return;
         res.write(`data: ${JSON.stringify(evt)}\n\n`);
